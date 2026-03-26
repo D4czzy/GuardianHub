@@ -24,7 +24,8 @@ Logger.Level = {
 Logger.CurrentLevel = Logger.Level.INFO
 
 function Logger.log(level: number, message: string, data: any?)
-    if level < Logger.CurrentLevel then -- [Removed Return]
+    if level < Logger.CurrentLevel then return end
+    
     local prefix = "[MACRO]"
     if level == Logger.Level.DEBUG then prefix = "[MACRO-DBG]"
     elseif level == Logger.Level.INFO then prefix = "[MACRO-INFO]"
@@ -53,7 +54,8 @@ function Logger.info(msg: string, data: any?) Logger.log(Logger.Level.INFO, msg,
 function Logger.warn(msg: string, data: any?) Logger.log(Logger.Level.WARN, msg, data) end
 function Logger.error(msg: string, data: any?) Logger.log(Logger.Level.ERROR, msg, data) end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Data/ActionSchema.lua
@@ -97,7 +99,7 @@ function ActionSchema.Validate(actionData: any): (boolean, string?)
     if type(actionData.retries) ~= "table" then return false, "Missing retries configuration" end
     if type(actionData.status) ~= "string" then return false, "Missing status" end
 
-    -- [Removed Return]
+    return true
 end
 
 function ActionSchema.CreateAction(props: any): Action
@@ -110,10 +112,11 @@ function ActionSchema.CreateAction(props: any): Action
     table.freeze(action.retries)
     if action.conditions then table.freeze(action.conditions) end
     table.freeze(action)
-    -- [Removed Return]
+    return action
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Abstraction/MapAdapter.lua
@@ -127,7 +130,7 @@ function MapAdapter.new(mapId: string, bounds: {Vector3}, anchors: {[string]: Ve
     self.MapId = mapId
     self.Bounds = bounds
     self.Anchors = anchors or {}
-    -- [Removed Return]
+    return self
 end
 
 function MapAdapter:HasAnchor(anchorId: string): boolean
@@ -143,12 +146,13 @@ function MapAdapter:GetScaleFactor(): Vector3
     -- Assuming Bounds[1] is Min and Bounds[2] is Max
     if self.Bounds and #self.Bounds >= 2 then
         local size = self.Bounds[2] - self.Bounds[1]
-        -- [Removed Return]
+        return size
     end
     return Vector3.new(100, 100, 100) -- Default fallback scale
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Abstraction/SpatialResolver.lua
@@ -211,13 +215,14 @@ function SpatialResolver.NormalizePosition(mapAdapter, targetPos: Vector3): (str
     return bestAnchor, offsetNormalized, nil
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Detection/AGDetector.lua
 --------------------------------------------
 -- MacroSystem/Detection/AGDetector.lua
--- [Removed Duplicate Service]
+local Players = game:GetService("Players")
 
 local AGDetector = {}
 AGDetector.__index = AGDetector
@@ -225,7 +230,7 @@ AGDetector.__index = AGDetector
 function AGDetector.new()
     local self = setmetatable({}, AGDetector)
     self.LocalPlayer = Players.LocalPlayer
-    -- [Removed Return]
+    return self
 end
 
 function AGDetector:GetHUD()
@@ -237,9 +242,9 @@ function AGDetector:GetHUD()
         if not hud then
             hud = pgui:FindFirstChild("HUD") -- Fallback
         end
-        -- [Removed Return]
+        return hud
     end
-    -- [Removed Return]
+    return nil
 end
 
 function AGDetector:GetState()
@@ -285,7 +290,8 @@ function AGDetector:GetMoney()
     return 0
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Detection/ConditionEvaluator.lua
@@ -297,7 +303,7 @@ ConditionEvaluator.__index = ConditionEvaluator
 function ConditionEvaluator.new(gameStateDetector)
     local self = setmetatable({}, ConditionEvaluator)
     self.Detector = gameStateDetector
-    -- [Removed Return]
+    return self
 end
 
 function ConditionEvaluator:Evaluate(condition: any, waitStartTime: number, currentTime: number): boolean
@@ -307,14 +313,14 @@ function ConditionEvaluator:Evaluate(condition: any, waitStartTime: number, curr
     
     -- 1. Game State checking
     if condition.gameState and self.Detector:GetState() ~= condition.gameState then
-        -- [Removed Return]
+        return false
     end
     
     -- 2. Wave Checking
     if condition.wave then
         local currentWave = self.Detector:GetCurrentWave()
         if currentWave < condition.wave then
-            -- [Removed Return]
+            return false
         end
     end
     
@@ -322,21 +328,22 @@ function ConditionEvaluator:Evaluate(condition: any, waitStartTime: number, curr
     if condition.minMoney then
         local currentMoney = self.Detector:GetMoney()
         if currentMoney < condition.minMoney then
-            -- [Removed Return]
+            return false
         end
     end
     
     -- 4. Hybrid Time Delay
     if condition.delay then
         if currentTime < (waitStartTime + condition.delay) then
-            -- [Removed Return]
+            return false
         end
     end
     
-    -- [Removed Return]
+    return true
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Core/ActionQueue.lua
@@ -348,7 +355,7 @@ ActionQueue.__index = ActionQueue
 function ActionQueue.new()
     local self = setmetatable({}, ActionQueue)
     self._queue = {}
-    -- [Removed Return]
+    return self
 end
 
 function ActionQueue:Enqueue(action)
@@ -391,13 +398,13 @@ function ActionQueue:GetQueue()
     return self._queue
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Core/StateMachine.lua
 --------------------------------------------
 -- MacroSystem/Core/StateMachine.lua
--- [Removed Require]
 
 local StateMachine = {}
 StateMachine.__index = StateMachine
@@ -418,13 +425,13 @@ function StateMachine.new()
     
     -- Instead of BindableEvent which might require instances, we use a simple listener array map
     self._listeners = {}
-    -- [Removed Return]
+    return self
 end
 
 function StateMachine:TransitionTo(newState: string)
     if not StateMachine.States[newState] then
         Logger.error("Attempted transition to invalid state: " .. tostring(newState))
-        -- [Removed Return]
+        return false
     end
     
     local oldState = self.CurrentState
@@ -437,7 +444,7 @@ function StateMachine:TransitionTo(newState: string)
         task.spawn(callback, newState, oldState)
     end
     
-    -- [Removed Return]
+    return true
 end
 
 function StateMachine:Subscribe(callback)
@@ -452,14 +459,14 @@ function StateMachine:Destroy()
     table.clear(self._listeners)
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Core/Scheduler.lua
 --------------------------------------------
 -- MacroSystem/Core/Scheduler.lua
--- [Removed Duplicate Service]
--- [Removed Require]
+local RunService = game:GetService("RunService")
 
 local Scheduler = {}
 Scheduler.__index = Scheduler
@@ -473,11 +480,11 @@ function Scheduler.new(executor, stateMachine)
     self.IsRunning = false
     self.IsPaused = false
     self._connection = nil
-    -- [Removed Return]
+    return self
 end
 
 function Scheduler:Start()
-    if self.IsRunning then -- [Removed Return]
+    if self.IsRunning then return end
     self.IsRunning = true
     self.IsPaused = false
     self.StartTime = os.clock()
@@ -515,25 +522,27 @@ function Scheduler:FastForward(seconds: number)
 end
 
 function Scheduler:OnHeartbeat(dt: number)
-    if not self.IsRunning or self.IsPaused then -- [Removed Return]
+    if not self.IsRunning or self.IsPaused then return end
+    
     self.CurrentTime = self.CurrentTime + dt
     
     -- Check if FSM is in Playing state
-    if self.StateMachine:GetState() ~= "Playing" then -- [Removed Return]
+    if self.StateMachine:GetState() ~= "Playing" then return end
+    
     -- Tell executor to process available actions
     if self.Executor then
         self.Executor:ProcessTick(self.CurrentTime)
     end
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Data/Serializer.lua
 --------------------------------------------
 -- MacroSystem/Data/Serializer.lua
--- [Removed Duplicate Service]
--- [Removed Require]
+local HttpService = game:GetService("HttpService")
 
 local Serializer = {}
 
@@ -559,17 +568,16 @@ function Serializer.Deserialize(jsonString: string): (any, string?)
         end
     end
     
-    -- [Removed Return]
+    return result
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Data/FileStore.lua
 --------------------------------------------
 -- MacroSystem/Data/FileStore.lua
--- [Removed Require]
--- [Removed Require]
 
 local FileStore = {}
 
@@ -589,7 +597,7 @@ function FileStore.SaveMacro(name: string, mapId: string, actions: table, requir
     _G.VirtualFileStore[name] = json
     
     Logger.info("Saved macro: " .. name .. " for MapId: " .. mapId)
-    -- [Removed Return]
+    return true
 end
 
 function FileStore.LoadMacro(name: string, currentMapAdapter: any): table?
@@ -598,25 +606,25 @@ function FileStore.LoadMacro(name: string, currentMapAdapter: any): table?
     
     if not json then
         Logger.error("Macro not found: " .. name)
-        -- [Removed Return]
+        return nil
     end
     
     local data, err = Serializer.Deserialize(json)
     if not data then
         Logger.error("Failed to parse macro " .. name .. ": " .. tostring(err))
-        -- [Removed Return]
+        return nil
     end
     
     -- Incompatibility Check
     for _, anchor in ipairs(data.requiredAnchors) do
         if not currentMapAdapter:HasAnchor(anchor) then
             Logger.warn("MACRO INCOMPATIBLE: Map is missing required anchor: " .. tostring(anchor))
-            -- [Removed Return]
+            return nil
         end
     end
     
     Logger.info("Successfully loaded macro: " .. name)
-    -- [Removed Return]
+    return data
 end
 
 function FileStore.ListMacros(): table
@@ -625,17 +633,16 @@ function FileStore.ListMacros(): table
     for name, _ in pairs(_G.VirtualFileStore) do
         table.insert(list, name)
     end
-    -- [Removed Return]
+    return list
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Recording/ActionNormalizer.lua
 --------------------------------------------
 -- MacroSystem/Recording/ActionNormalizer.lua
--- [Removed Require]
--- [Removed Require]
 
 local ActionNormalizer = {}
 
@@ -689,16 +696,15 @@ function ActionNormalizer.NormalizeSkill(uuid: string, skillId: string): any
     return ActionSchema.CreateAction(actionData)
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Recording/Recorder.lua
 --------------------------------------------
 -- MacroSystem/Recording/Recorder.lua
--- [Removed Duplicate Service]
--- [Removed Duplicate Service]
--- [Removed Require]
--- [Removed Require]
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
 
 local Recorder = {}
 Recorder.__index = Recorder
@@ -712,11 +718,11 @@ function Recorder.new(stateMachine, mapAdapter, gameStateDetector)
     self.IsRecording = false
     self.OriginalNamecall = nil
     self._connections = {}
-    -- [Removed Return]
+    return self
 end
 
 function Recorder:StartRecording()
-    if self.IsRecording then -- [Removed Return]
+    if self.IsRecording then return end
     self.IsRecording = true
     table.clear(self.RecordedActions)
     Logger.info("Recording Started.")
@@ -726,7 +732,9 @@ function Recorder:StartRecording()
     if not success or not mt then
         Logger.warn("[Safe Hook Fallback Active] getrawmetatable unsupported on this executor. Switching to Mouse Click Recording.")
         self:StartFallbackRecording()
-        -- [Removed Return]
+        return
+    end
+    
     setreadonly(mt, false)
     self.OriginalNamecall = mt.__namecall
     
@@ -753,7 +761,7 @@ function Recorder:StartFallbackRecording()
     -- Native Mouse Click recording commonly found in pastebin scripts
     local mouse = Players.LocalPlayer:GetMouse()
     local conn = UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then -- [Removed Return]
+        if gpe then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             -- Fallback blind assumption: User clicks to place unit. 
             -- Because we can't intercept network natively here, we guess the selected unit.
@@ -787,7 +795,7 @@ function Recorder:ProcessInterceptedRemote(remoteName, args)
 end
 
 function Recorder:StopRecording()
-    if not self.IsRecording then -- [Removed Return]
+    if not self.IsRecording then return end
     self.IsRecording = false
     
     if self.OriginalNamecall then
@@ -809,7 +817,8 @@ function Recorder:StopRecording()
 end
 
 function Recorder:RecordAction(action: any)
-    if not self.IsRecording then -- [Removed Return]
+    if not self.IsRecording then return end
+    
     local currentWave = self.Detector:GetCurrentWave()
     local safeAction = table.clone(action)
     local conditions = safeAction.conditions and table.clone(safeAction.conditions) or {}
@@ -824,15 +833,14 @@ function Recorder:GetRecording()
     return self.RecordedActions
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Execution/AGHandlers.lua
 --------------------------------------------
 -- MacroSystem/Execution/AGHandlers.lua
--- [Removed Duplicate Service]
--- [Removed Require]
--- [Removed Require]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AGHandlers = {}
 AGHandlers.__index = AGHandlers
@@ -844,7 +852,7 @@ function AGHandlers.new()
     self.Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
     
     self._handlers = {}
-    -- [Removed Return]
+    return self
 end
 
 function AGHandlers:RegisterHandler(actionType: string, handlerFn: any)
@@ -899,13 +907,13 @@ function AGHandlers:RegisterDefaults()
     end)
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: Execution/Executor.lua
 --------------------------------------------
 -- MacroSystem/Execution/Executor.lua
--- [Removed Require]
 
 local Executor = {}
 Executor.__index = Executor
@@ -918,7 +926,7 @@ function Executor.new(actionQueue, conditionEvaluator, actionHandlers, mapAdapte
     self.Adapter = mapAdapter
     self.CurrentAction = nil
     self.ActionWaitStartTime = 0
-    -- [Removed Return]
+    return self
 end
 
 function Executor:ProcessTick(currentTime: number)
@@ -971,15 +979,16 @@ function Executor:ProcessTick(currentTime: number)
     end
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: UI/UIController.lua
 --------------------------------------------
 -- MacroSystem/UI/UIController.lua
--- [Removed Duplicate Service]
--- [Removed Duplicate Service]
--- [Removed Duplicate Service]
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
 
 local UIController = {}
 UIController.__index = UIController
@@ -988,7 +997,7 @@ function UIController.new(macroSystem)
     local self = setmetatable({}, UIController)
     self.MacroSystem = macroSystem
     self.GuiElements = {}
-    -- [Removed Return]
+    return self
 end
 
 function UIController:Initialize()
@@ -1103,7 +1112,7 @@ function UIController:Initialize()
                 end
             end
         end)
-        -- [Removed Return]
+        return btn
     end
 
     local function createPage(name)
@@ -1125,7 +1134,7 @@ function UIController:Initialize()
             page.CanvasSize = UDim2.new(0, 0, 0, page.UIListLayout.AbsoluteContentSize.Y)
         end)
         table.insert(pages, page)
-        -- [Removed Return]
+        return page
     end
 
     local function createButtonCard(page, text, color, callback)
@@ -1260,7 +1269,8 @@ function UIController:Destroy()
     if self.GuiElements.ScreenGui then self.GuiElements.ScreenGui:Destroy() end
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- MODULE: MacroSystem.lua
@@ -1268,21 +1278,10 @@ end
 -- MacroSystem/MacroSystem.lua
 -- Main API Gateway for the Automation Engine
 
--- [Removed Require]
--- [Removed Require]
--- [Removed Require]
 
--- [Removed Require]
--- [Removed Require]
 
--- [Removed Require]
--- [Removed Require]
 
--- [Removed Require]
--- [Removed Require]
 
--- [Removed Require]
--- [Removed Require]
 
 local MacroSystem = {}
 MacroSystem.__index = MacroSystem
@@ -1318,7 +1317,7 @@ function MacroSystem.new(mapAdapter)
     end)
     
     Logger.info("Spatially Abstracted Deterministic Automation Engine Initialized")
-    -- [Removed Return]
+    return self
 end
 
 function MacroSystem:EnableAutoJoin(mapTarget: string, difficulty: string)
@@ -1357,8 +1356,8 @@ function MacroSystem:StartUI()
 end
 
 function MacroSystem:ToggleAntiAFK(state: boolean)
-    -- [Removed Duplicate Service]
-    -- [Removed Duplicate Service]
+    local Players = game:GetService("Players")
+    local VirtualUser = game:GetService("VirtualUser")
     
     if state then
         self.AntiAfkConn = Players.LocalPlayer.Idled:Connect(function()
@@ -1397,14 +1396,14 @@ function MacroSystem:Stop()
         self.Recorder:StopRecording()
         self.Queue:Clear()
     end
-    -- [Removed Return]
+    return oldState
 end
 
 function MacroSystem:SaveRecording(name: string, mapId: string)
     local actions = self.Recorder:GetRecording()
     if #actions == 0 then
         Logger.warn("No actions to save.")
-        -- [Removed Return]
+        return false
     end
     
     local requiredAnchors = {}
@@ -1432,9 +1431,9 @@ function MacroSystem:Play(name: string)
         end
         self.Scheduler:Start()
         Logger.info("Playing macro: " .. name .. " with " .. tostring(self.Queue:Count()) .. " actions.")
-        -- [Removed Return]
+        return true
     end
-    -- [Removed Return]
+    return false
 end
 
 function MacroSystem:GetState()
@@ -1446,13 +1445,13 @@ function MacroSystem:RecordAction(action)
     self.Recorder:RecordAction(action)
 end
 
--- [Removed Return]
+-- [Removed Module Return]
+
 
 --------------------------------------------
 -- BOOTSTRAPPER INJECTION
 --------------------------------------------
 
--- Define the fallback adapter (If players don't need anchors, they can skip this and let SpatialResolver fallback to RAW Vectors)
 local mapAnchors = {
     Spawn = Vector3.new(0, 5, 0),
     Turn1 = Vector3.new(100, 5, 50),
@@ -1461,8 +1460,7 @@ local mapAnchors = {
 local mapBounds = { Vector3.new(0, 0, 0), Vector3.new(300, 50, 300) }
 local testAdapter = MapAdapter.new("Map_Grassland", mapBounds, mapAnchors)
 
--- Boot Engine
 local testEngine = MacroSystem.new(testAdapter)
 testEngine:StartUI()
 
-print("Guardian Premium Hub Compiled Release Injected Successfully. Safe Hook Active.")
+print("Guardian Hub Compiled Release Injected Successfully.")
