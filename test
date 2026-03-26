@@ -1144,15 +1144,15 @@ function UIController:Initialize()
         page.BackgroundTransparency = 1
         page.ScrollBarThickness = 2
         page.CanvasSize = UDim2.new(0, 0, 0, 0)
-        page.UIListLayout = Instance.new("UIListLayout")
-        page.UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        page.UIListLayout.Padding = UDim.new(0, 10)
-        page.UIListLayout.Parent = page
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.Padding = UDim.new(0, 10)
+        listLayout.Parent = page
         page.Visible = false
         page.Parent = contentArea
         
-        page.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            page.CanvasSize = UDim2.new(0, 0, 0, page.UIListLayout.AbsoluteContentSize.Y)
+        listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
         end)
         table.insert(pages, page)
         return page
