@@ -1001,14 +1001,35 @@ function UIController.new(macroSystem)
 end
 
 function UIController:Initialize()
-    local success, parent = pcall(function() return CoreGui end)
-    if not success or not parent then parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
+    print("[UI] Booting Premium GUI...")
+    local parent
+    if gethui then
+        parent = gethui()
+        print("[UI] Using gethui() for GUI injection.")
+    else
+        local success, core = pcall(function() return game:GetService("CoreGui") end)
+        if success and core then
+            parent = core
+            print("[UI] Using CoreGui for GUI injection.")
+        else
+            parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+            print("[UI] Using PlayerGui for GUI injection.")
+        end
+    end
 
     local screen = Instance.new("ScreenGui")
     screen.Name = "GuardianPremiumHub"
     screen.ResetOnSpawn = false
     screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screen.Parent = parent
+    
+    local parentSuccess, err = pcall(function()
+        screen.Parent = parent
+    end)
+    if not parentSuccess then
+        print("[UI] Failed to mount GUI: " .. tostring(err) .. ". Falling back to PlayerGui.")
+        screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
+    
     self.GuiElements.ScreenGui = screen
 
     -- Main Container (Modern Dark Theme)
