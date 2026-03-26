@@ -947,28 +947,25 @@ function AGHandlers:RedeemAllCodes()
     }
     
     local rs = game:GetService("ReplicatedStorage")
-    local remotes = rs:FindFirstChild("Remotes")
-    if not remotes then return false end
+    local redeemEvent = rs:WaitForChild("PlayMode", 5)
+    if redeemEvent then redeemEvent = redeemEvent:WaitForChild("Events", 5) end
+    if redeemEvent then redeemEvent = redeemEvent:WaitForChild("Codes", 5) end
     
-    local redeemEvent = remotes:FindFirstChild("RedeemCode") or remotes:FindFirstChild("ClaimCode") or remotes:FindFirstChild("Code")
     if not redeemEvent then
-        Logger.warn("Redeem code remote not found!")
+        Logger.warn("Redeem code remote not found at PlayMode/Events/Codes!")
         return false
     end
     
     task.spawn(function()
-        for _, code in ipairs(codes) do
+        for _, codeStr in ipairs(codes) do
             local success, err = pcall(function()
-                if redeemEvent:IsA("RemoteEvent") then
-                    redeemEvent:FireServer(code)
-                elseif redeemEvent:IsA("RemoteFunction") then
-                    redeemEvent:InvokeServer(code)
-                end
+                local args = { codeStr }
+                redeemEvent:InvokeServer(unpack(args))
             end)
             if success then
-                Logger.info("Attempted to redeem code: " .. code)
+                Logger.info("Attempted to redeem code: " .. codeStr)
             else
-                Logger.warn("Failed to redeem " .. code .. ": " .. tostring(err))
+                Logger.warn("Failed to redeem " .. codeStr .. ": " .. tostring(err))
             end
             task.wait(1.5) -- Delay between redeems to avoid rate limits
         end
