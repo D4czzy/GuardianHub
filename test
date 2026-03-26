@@ -1048,6 +1048,31 @@ function UIController:Initialize()
     stroke.Color = Color3.fromRGB(60, 60, 80)
     stroke.Thickness = 1.2
 
+    -- Floating Open/Close Toggle Label
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "GuardianToggleBtn"
+    toggleBtn.Size = UDim2.new(0, 45, 0, 45)
+    toggleBtn.Position = UDim2.new(1, -60, 0.5, -22)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    toggleBtn.Text = "Hub"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = 14
+    toggleBtn.Parent = screen
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+    local tStroke = Instance.new("UIStroke", toggleBtn)
+    tStroke.Color = Color3.fromRGB(100, 150, 255)
+    tStroke.Thickness = 2
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        main.Visible = not main.Visible
+        if main.Visible then
+            TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 500, 0, 320)}):Play()
+        else
+            TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {Size = UDim2.new(0, 500, 0, 0)}):Play()
+        end
+    end)
+
     -- Sidebar
     local sidebar = Instance.new("Frame")
     sidebar.Size = UDim2.new(0, 140, 1, 0)
