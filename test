@@ -1,0 +1,1468 @@
+-- Guardian Premium Hub : Compiled Exploit Release (Single-File Run)
+
+local HttpService = game:GetService('HttpService')
+local Players = game:GetService('Players')
+local CoreGui = game:GetService('CoreGui')
+local TweenService = game:GetService('TweenService')
+local UserInputService = game:GetService('UserInputService')
+local RunService = game:GetService('RunService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+
+
+
+--------------------------------------------
+-- MODULE: Debug/Logger.lua
+--------------------------------------------
+-- MacroSystem/Debug/Logger.lua
+local Logger = {}
+Logger.Level = {
+    DEBUG = 1,
+    INFO = 2,
+    WARN = 3,
+    ERROR = 4
+}
+Logger.CurrentLevel = Logger.Level.INFO
+
+function Logger.log(level: number, message: string, data: any?)
+    if level < Logger.CurrentLevel then -- [Removed Return]
+    local prefix = "[MACRO]"
+    if level == Logger.Level.DEBUG then prefix = "[MACRO-DBG]"
+    elseif level == Logger.Level.INFO then prefix = "[MACRO-INFO]"
+    elseif level == Logger.Level.WARN then prefix = "[MACRO-WARN]"
+    elseif level == Logger.Level.ERROR then prefix = "[MACRO-ERR]"
+    end
+
+    local msg = string.format("%s %s", prefix, message)
+    if data then
+        if level >= Logger.Level.ERROR then
+            warn(msg, data)
+        else
+            print(msg, data)
+        end
+    else
+        if level >= Logger.Level.ERROR then
+            warn(msg)
+        else
+            print(msg)
+        end
+    end
+end
+
+function Logger.debug(msg: string, data: any?) Logger.log(Logger.Level.DEBUG, msg, data) end
+function Logger.info(msg: string, data: any?) Logger.log(Logger.Level.INFO, msg, data) end
+function Logger.warn(msg: string, data: any?) Logger.log(Logger.Level.WARN, msg, data) end
+function Logger.error(msg: string, data: any?) Logger.log(Logger.Level.ERROR, msg, data) end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Data/ActionSchema.lua
+--------------------------------------------
+-- MacroSystem/Data/ActionSchema.lua
+local ActionSchema = {}
+
+export type Retries = {
+    max: number,
+    count: number,
+    delay: number
+}
+
+export type ActionStatus = "pending" | "running" | "success" | "failed"
+
+export type Condition = {
+    wave: number?,
+    minMoney: number?,
+    unitExists: string?,
+    gameState: string?,
+    delay: number -- The hybrid delay
+}
+
+export type Action = {
+    id: string,
+    type: string,
+    timestamp: number,
+    payload: { [string]: any },
+    conditions: Condition?,
+    retries: Retries,
+    status: ActionStatus
+}
+
+-- Strict contract validation
+function ActionSchema.Validate(actionData: any): (boolean, string?)
+    if type(actionData) ~= "table" then return false, "Action must be a table" end
+    if type(actionData.id) ~= "string" then return false, "Missing or invalid id" end
+    if type(actionData.type) ~= "string" then return false, "Missing or invalid type" end
+    if type(actionData.timestamp) ~= "number" then return false, "Missing or invalid timestamp" end
+    if type(actionData.payload) ~= "table" then return false, "Missing or invalid payload" end
+    if type(actionData.retries) ~= "table" then return false, "Missing retries configuration" end
+    if type(actionData.status) ~= "string" then return false, "Missing status" end
+
+    -- [Removed Return]
+end
+
+function ActionSchema.CreateAction(props: any): Action
+    local ok, err = ActionSchema.Validate(props)
+    if not ok then
+        error("Action validation failed: " .. tostring(err))
+    end
+    -- Shallow clone and freeze (simulating immutability where possible)
+    local action = table.clone(props)
+    table.freeze(action.retries)
+    if action.conditions then table.freeze(action.conditions) end
+    table.freeze(action)
+    -- [Removed Return]
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Abstraction/MapAdapter.lua
+--------------------------------------------
+-- MacroSystem/Abstraction/MapAdapter.lua
+local MapAdapter = {}
+MapAdapter.__index = MapAdapter
+
+function MapAdapter.new(mapId: string, bounds: {Vector3}, anchors: {[string]: Vector3})
+    local self = setmetatable({}, MapAdapter)
+    self.MapId = mapId
+    self.Bounds = bounds
+    self.Anchors = anchors or {}
+    -- [Removed Return]
+end
+
+function MapAdapter:HasAnchor(anchorId: string): boolean
+    return self.Anchors[anchorId] ~= nil
+end
+
+function MapAdapter:GetAnchorPosition(anchorId: string): Vector3?
+    return self.Anchors[anchorId]
+end
+
+function MapAdapter:GetScaleFactor(): Vector3
+    -- This defines how normalized offsets map to real studs.
+    -- Assuming Bounds[1] is Min and Bounds[2] is Max
+    if self.Bounds and #self.Bounds >= 2 then
+        local size = self.Bounds[2] - self.Bounds[1]
+        -- [Removed Return]
+    end
+    return Vector3.new(100, 100, 100) -- Default fallback scale
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Abstraction/SpatialResolver.lua
+--------------------------------------------
+-- MacroSystem/Abstraction/SpatialResolver.lua
+local SpatialResolver = {}
+
+function SpatialResolver.ResolvePosition(mapAdapter, anchorId: string?, offsetNormalized: any?, absolutePosition: Vector3?): Vector3
+    -- Fallback for simple scripts (No Adapter logic)
+    if not mapAdapter or not anchorId or not offsetNormalized then
+        if absolutePosition then return absolutePosition end
+        error("Missing Spatial Data: Neither MapAdapter nor AbsolutePosition provided.")
+    end
+    
+    if not mapAdapter:HasAnchor(anchorId) then
+        error("MapAdapter missing required anchor: " .. tostring(anchorId))
+    end
+    
+    local anchorPos = mapAdapter:GetAnchorPosition(anchorId)
+    local scale = mapAdapter:GetScaleFactor()
+    
+    local rx = (offsetNormalized.x or 0) * scale.X
+    local ry = (offsetNormalized.y or 0) * scale.Y
+    local rz = (offsetNormalized.z or 0) * scale.Z
+    
+    return anchorPos + Vector3.new(rx, ry, rz)
+end
+
+function SpatialResolver.NormalizePosition(mapAdapter, targetPos: Vector3): (string?, any?, Vector3?)
+    -- Fallback for simple scripts
+    if not mapAdapter or not mapAdapter.Anchors or next(mapAdapter.Anchors) == nil then
+        return nil, nil, targetPos
+    end
+
+    local bestAnchor = nil
+    local shortestDist = math.huge
+    
+    for id, pos in pairs(mapAdapter.Anchors) do
+        local dist = (targetPos - pos).Magnitude
+        if dist < shortestDist then
+            shortestDist = dist
+            bestAnchor = id
+        end
+    end
+    
+    if not bestAnchor then
+        return nil, nil, targetPos
+    end
+    
+    local anchorPos = mapAdapter:GetAnchorPosition(bestAnchor)
+    local scale = mapAdapter:GetScaleFactor()
+    local rawOffset = targetPos - anchorPos
+    
+    local offsetNormalized = {
+        x = scale.X ~= 0 and (rawOffset.X / scale.X) or 0,
+        y = scale.Y ~= 0 and (rawOffset.Y / scale.Y) or 0,
+        z = scale.Z ~= 0 and (rawOffset.Z / scale.Z) or 0
+    }
+    
+    return bestAnchor, offsetNormalized, nil
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Detection/AGDetector.lua
+--------------------------------------------
+-- MacroSystem/Detection/AGDetector.lua
+-- [Removed Duplicate Service]
+
+local AGDetector = {}
+AGDetector.__index = AGDetector
+
+function AGDetector.new()
+    local self = setmetatable({}, AGDetector)
+    self.LocalPlayer = Players.LocalPlayer
+    -- [Removed Return]
+end
+
+function AGDetector:GetHUD()
+    if not self.LocalPlayer then return nil end
+    local pgui = self.LocalPlayer:FindFirstChild("PlayerGui")
+    if pgui then
+        -- Search for common Anime Guardians HUD structures
+        local hud = pgui:FindFirstChild("MainUI") and pgui.MainUI:FindFirstChild("HUD")
+        if not hud then
+            hud = pgui:FindFirstChild("HUD") -- Fallback
+        end
+        -- [Removed Return]
+    end
+    -- [Removed Return]
+end
+
+function AGDetector:GetState()
+    local hud = self:GetHUD()
+    if hud and hud.Visible then
+        return "InGame"
+    end
+    return "Lobby"
+end
+
+function AGDetector:GetCurrentWave()
+    local hud = self:GetHUD()
+    if hud then
+        -- Target Anime Guardians Wave TextLabel
+        local waveContainer = hud:FindFirstChild("WaveInfo") or hud:FindFirstChild("TopBar")
+        if waveContainer then
+            local waveLabel = waveContainer:FindFirstChild("Wave") or waveContainer:FindFirstChild("WaveText")
+            if waveLabel and waveLabel:IsA("TextLabel") then
+                -- Parse string like "Wave 15" -> 15
+                local num = string.match(waveLabel.Text, "%d+")
+                return tonumber(num) or 0
+            end
+        end
+    end
+    return 0 -- Default
+end
+
+function AGDetector:GetMoney()
+    local hud = self:GetHUD()
+    if hud then
+        -- Target Anime Guardians Money TextLabel
+        local moneyLabel = hud:FindFirstChild("Money") or (hud:FindFirstChild("BottomBar") and hud.BottomBar:FindFirstChild("Money"))
+        if moneyLabel and moneyLabel:IsA("TextLabel") then
+            -- Parse "5,000" -> 5000
+            local clean = string.gsub(moneyLabel.Text, ",", "")
+            return tonumber(clean) or 0
+        end
+    end
+    -- Fallback to leaderstats just in case
+    if self.LocalPlayer:FindFirstChild("leaderstats") and self.LocalPlayer.leaderstats:FindFirstChild("Money") then
+        return self.LocalPlayer.leaderstats.Money.Value
+    end
+    return 0
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Detection/ConditionEvaluator.lua
+--------------------------------------------
+-- MacroSystem/Detection/ConditionEvaluator.lua
+local ConditionEvaluator = {}
+ConditionEvaluator.__index = ConditionEvaluator
+
+function ConditionEvaluator.new(gameStateDetector)
+    local self = setmetatable({}, ConditionEvaluator)
+    self.Detector = gameStateDetector
+    -- [Removed Return]
+end
+
+function ConditionEvaluator:Evaluate(condition: any, waitStartTime: number, currentTime: number): boolean
+    if not condition then return true end
+    
+    -- Hybrid State + Time evaluation
+    
+    -- 1. Game State checking
+    if condition.gameState and self.Detector:GetState() ~= condition.gameState then
+        -- [Removed Return]
+    end
+    
+    -- 2. Wave Checking
+    if condition.wave then
+        local currentWave = self.Detector:GetCurrentWave()
+        if currentWave < condition.wave then
+            -- [Removed Return]
+        end
+    end
+    
+    -- 3. Money Checking 
+    if condition.minMoney then
+        local currentMoney = self.Detector:GetMoney()
+        if currentMoney < condition.minMoney then
+            -- [Removed Return]
+        end
+    end
+    
+    -- 4. Hybrid Time Delay
+    if condition.delay then
+        if currentTime < (waitStartTime + condition.delay) then
+            -- [Removed Return]
+        end
+    end
+    
+    -- [Removed Return]
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Core/ActionQueue.lua
+--------------------------------------------
+-- MacroSystem/Core/ActionQueue.lua
+local ActionQueue = {}
+ActionQueue.__index = ActionQueue
+
+function ActionQueue.new()
+    local self = setmetatable({}, ActionQueue)
+    self._queue = {}
+    -- [Removed Return]
+end
+
+function ActionQueue:Enqueue(action)
+    -- Insert based on timestamp (priority queue behavior)
+    local inserted = false
+    for i, a in ipairs(self._queue) do
+        if action.timestamp < a.timestamp then
+            table.insert(self._queue, i, action)
+            inserted = true
+            break
+        end
+    end
+    if not inserted then
+        table.insert(self._queue, action)
+    end
+end
+
+function ActionQueue:Dequeue()
+    if #self._queue == 0 then return nil end
+    return table.remove(self._queue, 1)
+end
+
+function ActionQueue:Peek()
+    return self._queue[1]
+end
+
+function ActionQueue:Requeue(action)
+    self:Enqueue(action)
+end
+
+function ActionQueue:Clear()
+    table.clear(self._queue)
+end
+
+function ActionQueue:Count()
+    return #self._queue
+end
+
+function ActionQueue:GetQueue()
+    return self._queue
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Core/StateMachine.lua
+--------------------------------------------
+-- MacroSystem/Core/StateMachine.lua
+-- [Removed Require]
+
+local StateMachine = {}
+StateMachine.__index = StateMachine
+
+StateMachine.States = {
+    Idle = "Idle",
+    Recording = "Recording",
+    Playing = "Playing",
+    WaitingResult = "WaitingResult",
+    Transition = "Transition",
+    AutoLobby = "AutoLobby",
+    Error = "Error"
+}
+
+function StateMachine.new()
+    local self = setmetatable({}, StateMachine)
+    self.CurrentState = StateMachine.States.Idle
+    
+    -- Instead of BindableEvent which might require instances, we use a simple listener array map
+    self._listeners = {}
+    -- [Removed Return]
+end
+
+function StateMachine:TransitionTo(newState: string)
+    if not StateMachine.States[newState] then
+        Logger.error("Attempted transition to invalid state: " .. tostring(newState))
+        -- [Removed Return]
+    end
+    
+    local oldState = self.CurrentState
+    if oldState == newState then return false end
+    
+    Logger.info("FSM Transition: " .. oldState .. " -> " .. newState)
+    self.CurrentState = newState
+    
+    for _, callback in ipairs(self._listeners) do
+        task.spawn(callback, newState, oldState)
+    end
+    
+    -- [Removed Return]
+end
+
+function StateMachine:Subscribe(callback)
+    table.insert(self._listeners, callback)
+end
+
+function StateMachine:GetState()
+    return self.CurrentState
+end
+
+function StateMachine:Destroy()
+    table.clear(self._listeners)
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Core/Scheduler.lua
+--------------------------------------------
+-- MacroSystem/Core/Scheduler.lua
+-- [Removed Duplicate Service]
+-- [Removed Require]
+
+local Scheduler = {}
+Scheduler.__index = Scheduler
+
+function Scheduler.new(executor, stateMachine)
+    local self = setmetatable({}, Scheduler)
+    self.Executor = executor
+    self.StateMachine = stateMachine
+    self.StartTime = 0
+    self.CurrentTime = 0
+    self.IsRunning = false
+    self.IsPaused = false
+    self._connection = nil
+    -- [Removed Return]
+end
+
+function Scheduler:Start()
+    if self.IsRunning then -- [Removed Return]
+    self.IsRunning = true
+    self.IsPaused = false
+    self.StartTime = os.clock()
+    self.CurrentTime = 0
+    
+    Logger.info("Scheduler Started.")
+    self._connection = RunService.Heartbeat:Connect(function(dt)
+        self:OnHeartbeat(dt)
+    end)
+end
+
+function Scheduler:Pause()
+    self.IsPaused = true
+    Logger.info("Scheduler Paused.")
+end
+
+function Scheduler:Resume()
+    self.IsPaused = false
+    Logger.info("Scheduler Resumed.")
+end
+
+function Scheduler:Stop()
+    self.IsRunning = false
+    self.IsPaused = false
+    if self._connection then
+        self._connection:Disconnect()
+        self._connection = nil
+    end
+    Logger.info("Scheduler Stopped.")
+end
+
+function Scheduler:FastForward(seconds: number)
+    self.CurrentTime = self.CurrentTime + seconds
+    Logger.info("Scheduler Fast Forwarded by " .. tostring(seconds) .. "s")
+end
+
+function Scheduler:OnHeartbeat(dt: number)
+    if not self.IsRunning or self.IsPaused then -- [Removed Return]
+    self.CurrentTime = self.CurrentTime + dt
+    
+    -- Check if FSM is in Playing state
+    if self.StateMachine:GetState() ~= "Playing" then -- [Removed Return]
+    -- Tell executor to process available actions
+    if self.Executor then
+        self.Executor:ProcessTick(self.CurrentTime)
+    end
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Data/Serializer.lua
+--------------------------------------------
+-- MacroSystem/Data/Serializer.lua
+-- [Removed Duplicate Service]
+-- [Removed Require]
+
+local Serializer = {}
+
+-- Serialize for saving to JSON
+function Serializer.Serialize(macroData: any): string
+    return HttpService:JSONEncode(macroData)
+end
+
+-- Deserialize from JSON and validate schema implicitly
+function Serializer.Deserialize(jsonString: string): (any, string?)
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(jsonString)
+    end)
+    if not success then return nil, "Failed to decode JSON" end
+    
+    -- Re-validate all actions
+    if result.actions then
+        for i, rawAction in ipairs(result.actions) do
+            local ok, err = ActionSchema.Validate(rawAction)
+            if not ok then
+                return nil, "Invalid action at index " .. i .. ": " .. tostring(err)
+            end
+        end
+    end
+    
+    -- [Removed Return]
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Data/FileStore.lua
+--------------------------------------------
+-- MacroSystem/Data/FileStore.lua
+-- [Removed Require]
+-- [Removed Require]
+
+local FileStore = {}
+
+-- Mocking file persistence. In studio could use writefile if Executor, or DataStores/HttpService for normal game.
+function FileStore.SaveMacro(name: string, mapId: string, actions: table, requiredAnchors: table): boolean
+    local macroData = {
+        version = "1.0",
+        name = name,
+        mapId = mapId,
+        requiredAnchors = requiredAnchors or {},
+        actions = actions
+    }
+    
+    local json = Serializer.Serialize(macroData)
+    -- Virtual storage for demonstration
+    _G.VirtualFileStore = _G.VirtualFileStore or {}
+    _G.VirtualFileStore[name] = json
+    
+    Logger.info("Saved macro: " .. name .. " for MapId: " .. mapId)
+    -- [Removed Return]
+end
+
+function FileStore.LoadMacro(name: string, currentMapAdapter: any): table?
+    _G.VirtualFileStore = _G.VirtualFileStore or {}
+    local json = _G.VirtualFileStore[name]
+    
+    if not json then
+        Logger.error("Macro not found: " .. name)
+        -- [Removed Return]
+    end
+    
+    local data, err = Serializer.Deserialize(json)
+    if not data then
+        Logger.error("Failed to parse macro " .. name .. ": " .. tostring(err))
+        -- [Removed Return]
+    end
+    
+    -- Incompatibility Check
+    for _, anchor in ipairs(data.requiredAnchors) do
+        if not currentMapAdapter:HasAnchor(anchor) then
+            Logger.warn("MACRO INCOMPATIBLE: Map is missing required anchor: " .. tostring(anchor))
+            -- [Removed Return]
+        end
+    end
+    
+    Logger.info("Successfully loaded macro: " .. name)
+    -- [Removed Return]
+end
+
+function FileStore.ListMacros(): table
+    _G.VirtualFileStore = _G.VirtualFileStore or {}
+    local list = {}
+    for name, _ in pairs(_G.VirtualFileStore) do
+        table.insert(list, name)
+    end
+    -- [Removed Return]
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Recording/ActionNormalizer.lua
+--------------------------------------------
+-- MacroSystem/Recording/ActionNormalizer.lua
+-- [Removed Require]
+-- [Removed Require]
+
+local ActionNormalizer = {}
+
+function ActionNormalizer.NormalizePlacement(rawPos: Vector3, mapAdapter: any, unitId: string): any
+    local anchor, offset, absolutePos = SpatialResolver.NormalizePosition(mapAdapter, rawPos)
+    
+    local payload = { unitId = unitId }
+    if anchor and offset then
+        payload.anchor = anchor
+        payload.offsetNormalized = offset
+    else
+        payload.absolutePosition = absolutePos
+    end
+    
+    local actionData = {
+        id = game:GetService("HttpService"):GenerateGUID(false),
+        type = "place_unit",
+        timestamp = os.clock(),
+        payload = payload,
+        conditions = { delay = 0 },
+        retries = { max = 3, count = 0, delay = 1 },
+        status = "pending"
+    }
+    
+    return ActionSchema.CreateAction(actionData)
+end
+
+function ActionNormalizer.NormalizeUpgrade(uuid: string): any
+    local actionData = {
+        id = game:GetService("HttpService"):GenerateGUID(false),
+        type = "upgrade_unit",
+        timestamp = os.clock(),
+        payload = { uuid = uuid },
+        conditions = { delay = 0 },
+        retries = { max = 3, count = 0, delay = 1 },
+        status = "pending"
+    }
+    return ActionSchema.CreateAction(actionData)
+end
+
+function ActionNormalizer.NormalizeSkill(uuid: string, skillId: string): any
+    local actionData = {
+        id = game:GetService("HttpService"):GenerateGUID(false),
+        type = "use_skill",
+        timestamp = os.clock(),
+        payload = { uuid = uuid, skillId = skillId },
+        conditions = { delay = 0 },
+        retries = { max = 3, count = 0, delay = 1 },
+        status = "pending"
+    }
+    return ActionSchema.CreateAction(actionData)
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Recording/Recorder.lua
+--------------------------------------------
+-- MacroSystem/Recording/Recorder.lua
+-- [Removed Duplicate Service]
+-- [Removed Duplicate Service]
+-- [Removed Require]
+-- [Removed Require]
+
+local Recorder = {}
+Recorder.__index = Recorder
+
+function Recorder.new(stateMachine, mapAdapter, gameStateDetector)
+    local self = setmetatable({}, Recorder)
+    self.StateMachine = stateMachine
+    self.Adapter = mapAdapter
+    self.Detector = gameStateDetector
+    self.RecordedActions = {}
+    self.IsRecording = false
+    self.OriginalNamecall = nil
+    self._connections = {}
+    -- [Removed Return]
+end
+
+function Recorder:StartRecording()
+    if self.IsRecording then -- [Removed Return]
+    self.IsRecording = true
+    table.clear(self.RecordedActions)
+    Logger.info("Recording Started.")
+    
+    -- Safe Hook System: Check for getrawmetatable availability natively
+    local success, mt = pcall(getrawmetatable, game)
+    if not success or not mt then
+        Logger.warn("[Safe Hook Fallback Active] getrawmetatable unsupported on this executor. Switching to Mouse Click Recording.")
+        self:StartFallbackRecording()
+        -- [Removed Return]
+    setreadonly(mt, false)
+    self.OriginalNamecall = mt.__namecall
+    
+    local oldNamecall = self.OriginalNamecall
+    mt.__namecall = newcclosure(function(self_obj, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        if self.IsRecording and typeof(self_obj) == "Instance" and (self_obj:IsA("RemoteEvent") or self_obj:IsA("RemoteFunction")) then
+            if method == "InvokeServer" or method == "FireServer" then
+                local remoteName = self_obj.Name
+                task.spawn(function()
+                    self:ProcessInterceptedRemote(remoteName, args)
+                end)
+            end
+        end
+        return oldNamecall(self_obj, ...)
+    end)
+    setreadonly(mt, true)
+    Logger.info("Advanced __namecall interception active.")
+end
+
+function Recorder:StartFallbackRecording()
+    -- Native Mouse Click recording commonly found in pastebin scripts
+    local mouse = Players.LocalPlayer:GetMouse()
+    local conn = UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then -- [Removed Return]
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            -- Fallback blind assumption: User clicks to place unit. 
+            -- Because we can't intercept network natively here, we guess the selected unit.
+            local placementPos = mouse.Hit.Position
+            local mockUnit = "Unit_" .. tostring(math.random(100, 999))
+            local action = ActionNormalizer.NormalizePlacement(placementPos, self.Adapter, mockUnit)
+            self:RecordAction(action)
+            Logger.info("Fallback Mouse Recorded: " .. tostring(placementPos))
+        end
+    end)
+    table.insert(self._connections, conn)
+end
+
+function Recorder:ProcessInterceptedRemote(remoteName, args)
+    if remoteName == "PlaceUnit" or remoteName == "SpawnUnit" then
+        local unitId = args[1]
+        local position = args[2]
+        if typeof(position) == "Vector3" then
+            local action = ActionNormalizer.NormalizePlacement(position, self.Adapter, tostring(unitId))
+            self:RecordAction(action)
+        end
+    elseif remoteName == "UpgradeUnit" then
+        local uuid = args[1]
+        local action = ActionNormalizer.NormalizeUpgrade(tostring(uuid))
+        self:RecordAction(action)
+    elseif remoteName == "SellUnit" then
+        local action = ActionNormalizer.NormalizeSkill(tostring(args[1]), "sell") 
+        action.type = "sell_unit"
+        self:RecordAction(action)
+    end
+end
+
+function Recorder:StopRecording()
+    if not self.IsRecording then -- [Removed Return]
+    self.IsRecording = false
+    
+    if self.OriginalNamecall then
+        local success, mt = pcall(getrawmetatable, game)
+        if success and mt then
+            setreadonly(mt, false)
+            mt.__namecall = self.OriginalNamecall
+            setreadonly(mt, true)
+        end
+        self.OriginalNamecall = nil
+    end
+    
+    for _, conn in ipairs(self._connections) do
+        conn:Disconnect()
+    end
+    table.clear(self._connections)
+    
+    Logger.info("Recording Stopped. Total Actions: " .. tostring(#self.RecordedActions))
+end
+
+function Recorder:RecordAction(action: any)
+    if not self.IsRecording then -- [Removed Return]
+    local currentWave = self.Detector:GetCurrentWave()
+    local safeAction = table.clone(action)
+    local conditions = safeAction.conditions and table.clone(safeAction.conditions) or {}
+    conditions.wave = currentWave
+    
+    safeAction.conditions = conditions
+    table.insert(self.RecordedActions, safeAction)
+    Logger.debug("Recorded action: " .. safeAction.type)
+end
+
+function Recorder:GetRecording()
+    return self.RecordedActions
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Execution/AGHandlers.lua
+--------------------------------------------
+-- MacroSystem/Execution/AGHandlers.lua
+-- [Removed Duplicate Service]
+-- [Removed Require]
+-- [Removed Require]
+
+local AGHandlers = {}
+AGHandlers.__index = AGHandlers
+
+function AGHandlers.new()
+    local self = setmetatable({}, AGHandlers)
+    
+    -- Target Anime Guardians Remote Storage location
+    self.Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+    
+    self._handlers = {}
+    -- [Removed Return]
+end
+
+function AGHandlers:RegisterHandler(actionType: string, handlerFn: any)
+    self._handlers[actionType] = handlerFn
+end
+
+function AGHandlers:Handle(action: any, mapAdapter: any)
+    local handler = self._handlers[action.type]
+    if not handler then
+        error("No handler registered for action type: " .. tostring(action.type))
+    end
+    handler(action.payload, mapAdapter, self.Remotes)
+end
+
+function AGHandlers:RegisterDefaults()
+    self:RegisterHandler("place_unit", function(payload, mapAdapter, remotes)
+        local position = payload.absolutePosition or SpatialResolver.ResolvePosition(mapAdapter, payload.anchor, payload.offsetNormalized)
+        Logger.info(string.format("AG Action: PlaceUnit %s at %s", tostring(payload.unitId), tostring(position)))
+        
+        -- Exact Anime Guardians Invoke
+        if remotes then
+            remotes:WaitForChild("PlaceUnit"):InvokeServer(payload.unitId, position, CFrame.new())
+        end
+    end)
+
+    self:RegisterHandler("upgrade_unit", function(payload, mapAdapter, remotes)
+        Logger.info("AG Action: UpgradeUnit " .. tostring(payload.uuid))
+        if remotes then
+            remotes:WaitForChild("UpgradeUnit"):InvokeServer(payload.uuid)
+        end
+    end)
+
+    self:RegisterHandler("sell_unit", function(payload, mapAdapter, remotes)
+        Logger.info("AG Action: SellUnit " .. tostring(payload.uuid))
+        if remotes then
+            remotes:WaitForChild("SellUnit"):InvokeServer(payload.uuid)
+        end
+    end)
+
+    self:RegisterHandler("change_targeting", function(payload, mapAdapter, remotes)
+        Logger.info("AG Action: ChangeTargeting " .. tostring(payload.uuid) .. " to " .. tostring(payload.targetMode))
+        if remotes then
+            remotes:WaitForChild("ChangeTargeting"):InvokeServer(payload.uuid, payload.targetMode)
+        end
+    end)
+    
+    self:RegisterHandler("use_skill", function(payload, mapAdapter, remotes)
+        Logger.info("AG Action: UseSkill " .. tostring(payload.uuid) .. " skill: " .. tostring(payload.skillId))
+        if remotes then
+            remotes:WaitForChild("UseSkill"):InvokeServer(payload.uuid, payload.skillId)
+        end
+    end)
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: Execution/Executor.lua
+--------------------------------------------
+-- MacroSystem/Execution/Executor.lua
+-- [Removed Require]
+
+local Executor = {}
+Executor.__index = Executor
+
+function Executor.new(actionQueue, conditionEvaluator, actionHandlers, mapAdapter)
+    local self = setmetatable({}, Executor)
+    self.Queue = actionQueue
+    self.Evaluator = conditionEvaluator
+    self.Handlers = actionHandlers
+    self.Adapter = mapAdapter
+    self.CurrentAction = nil
+    self.ActionWaitStartTime = 0
+    -- [Removed Return]
+end
+
+function Executor:ProcessTick(currentTime: number)
+    if not self.CurrentAction then
+        self.CurrentAction = self.Queue:Dequeue()
+        if self.CurrentAction then
+            self.ActionWaitStartTime = currentTime
+            Logger.debug("Dequeued new action: " .. self.CurrentAction.id)
+        else
+            return -- Queue empty
+        end
+    end
+
+    local action = self.CurrentAction
+
+    -- Validate conditions (Hybrid state + time sync)
+    local ready = self.Evaluator:Evaluate(action.conditions, self.ActionWaitStartTime, currentTime)
+    if not ready then
+        return -- Still waiting for condition to be met
+    end
+
+    -- Execute Action
+    Logger.info("Executing action: " .. action.id .. " type: " .. action.type)
+    action.status = "running"
+    
+    local success, err = pcall(function()
+        self.Handlers:Handle(action, self.Adapter)
+    end)
+    
+    if success then
+        action.status = "success"
+        Logger.info("Action Success: " .. action.id)
+        self.CurrentAction = nil
+    else
+        action.status = "failed"
+        action.retries.count = action.retries.count + 1
+        Logger.warn("Action Failed: " .. action.id .. " | Error: " .. tostring(err))
+        
+        if action.retries.count <= action.retries.max then
+            Logger.info("Requeueing action: " .. action.id .. " (Retry " .. tostring(action.retries.count) .. ")")
+            action.status = "pending"
+            if not action.conditions then action.conditions = {} end
+            -- Exponential or generic retry backoff can be formulated here
+            action.conditions.delay = (action.conditions.delay or 0) + action.retries.delay
+            self.Queue:Requeue(action)
+        else
+            Logger.error("Action max retries reached, failing: " .. action.id)
+        end
+        self.CurrentAction = nil
+    end
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: UI/UIController.lua
+--------------------------------------------
+-- MacroSystem/UI/UIController.lua
+-- [Removed Duplicate Service]
+-- [Removed Duplicate Service]
+-- [Removed Duplicate Service]
+
+local UIController = {}
+UIController.__index = UIController
+
+function UIController.new(macroSystem)
+    local self = setmetatable({}, UIController)
+    self.MacroSystem = macroSystem
+    self.GuiElements = {}
+    -- [Removed Return]
+end
+
+function UIController:Initialize()
+    local success, parent = pcall(function() return CoreGui end)
+    if not success or not parent then parent = Players.LocalPlayer:WaitForChild("PlayerGui") end
+
+    local screen = Instance.new("ScreenGui")
+    screen.Name = "GuardianPremiumHub"
+    screen.ResetOnSpawn = false
+    screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screen.Parent = parent
+    self.GuiElements.ScreenGui = screen
+
+    -- Main Container (Modern Dark Theme)
+    local main = Instance.new("Frame")
+    main.Size = UDim2.new(0, 500, 0, 320)
+    main.Position = UDim2.new(0.5, -250, 0.5, -160)
+    main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Draggable = true
+    main.ClipsDescendants = true
+    main.Parent = screen
+    
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", main)
+    stroke.Color = Color3.fromRGB(60, 60, 80)
+    stroke.Thickness = 1.2
+
+    -- Sidebar
+    local sidebar = Instance.new("Frame")
+    sidebar.Size = UDim2.new(0, 140, 1, 0)
+    sidebar.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    sidebar.BorderSizePixel = 0
+    sidebar.Parent = main
+    Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 10)
+    
+    -- Hide right corners of sidebar
+    local cornerHider = Instance.new("Frame")
+    cornerHider.Size = UDim2.new(0, 10, 1, 0)
+    cornerHider.Position = UDim2.new(1, -10, 0, 0)
+    cornerHider.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    cornerHider.BorderSizePixel = 0
+    cornerHider.Parent = sidebar
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 60)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "GUARDIAN\nHUB"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 16
+    title.Parent = sidebar
+
+    -- Content Area
+    local contentArea = Instance.new("Frame")
+    contentArea.Size = UDim2.new(1, -140, 1, 0)
+    contentArea.Position = UDim2.new(0, 140, 0, 0)
+    contentArea.BackgroundTransparency = 1
+    contentArea.Parent = main
+
+    -- State Label
+    local statusLbl = Instance.new("TextLabel")
+    statusLbl.Size = UDim2.new(1, -20, 0, 30)
+    statusLbl.Position = UDim2.new(0, 15, 1, -35)
+    statusLbl.BackgroundTransparency = 1
+    statusLbl.Text = "Status: Idle"
+    statusLbl.TextColor3 = Color3.fromRGB(150, 150, 180)
+    statusLbl.Font = Enum.Font.GothamSemibold
+    statusLbl.TextSize = 13
+    statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    statusLbl.Parent = contentArea
+    self.GuiElements.StatusLabel = statusLbl
+
+    local pages = {}
+    local tabButtons = {}
+    
+    local function createTabButton(name, yPos, pageFrame)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 40)
+        btn.Position = UDim2.new(0, 0, 0, yPos)
+        btn.BackgroundTransparency = 1
+        btn.Text = "  " .. name
+        btn.TextColor3 = Color3.fromRGB(130, 130, 150)
+        btn.Font = Enum.Font.GothamSemibold
+        btn.TextSize = 14
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = sidebar
+        
+        local indicator = Instance.new("Frame")
+        indicator.Size = UDim2.new(0, 3, 0, 0)
+        indicator.Position = UDim2.new(0, 0, 0.5, 0)
+        indicator.AnchorPoint = Vector2.new(0, 0.5)
+        indicator.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        indicator.BorderSizePixel = 0
+        indicator.Parent = btn
+
+        table.insert(tabButtons, {btn = btn, indicator = indicator, page = pageFrame})
+
+        btn.MouseButton1Click:Connect(function()
+            for _, t in ipairs(tabButtons) do
+                if t.btn == btn then
+                    TweenService:Create(t.btn, TweenInfo.new(0.3), {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+                    TweenService:Create(t.indicator, TweenInfo.new(0.3), {Size = UDim2.new(0, 3, 0.5, 0)}):Play()
+                    t.page.Visible = true
+                else
+                    TweenService:Create(t.btn, TweenInfo.new(0.3), {TextColor3 = Color3.fromRGB(130, 130, 150)}):Play()
+                    TweenService:Create(t.indicator, TweenInfo.new(0.3), {Size = UDim2.new(0, 3, 0, 0)}):Play()
+                    t.page.Visible = false
+                end
+            end
+        end)
+        -- [Removed Return]
+    end
+
+    local function createPage(name)
+        local page = Instance.new("ScrollingFrame")
+        page.Name = name
+        page.Size = UDim2.new(1, -30, 1, -50)
+        page.Position = UDim2.new(0, 15, 0, 15)
+        page.BackgroundTransparency = 1
+        page.ScrollBarThickness = 2
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
+        page.UIListLayout = Instance.new("UIListLayout")
+        page.UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        page.UIListLayout.Padding = UDim.new(0, 10)
+        page.UIListLayout.Parent = page
+        page.Visible = false
+        page.Parent = contentArea
+        
+        page.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, page.UIListLayout.AbsoluteContentSize.Y)
+        end)
+        table.insert(pages, page)
+        -- [Removed Return]
+    end
+
+    local function createButtonCard(page, text, color, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 42)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+        frame.Parent = page
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = text
+        btn.TextColor3 = color or Color3.fromRGB(240, 240, 240)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 14
+        btn.Parent = frame
+        
+        btn.MouseEnter:Connect(function() TweenService:Create(frame, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 55)}):Play() end)
+        btn.MouseLeave:Connect(function() TweenService:Create(frame, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(30, 30, 38)}):Play() end)
+        btn.MouseButton1Down:Connect(function() TweenService:Create(frame, TweenInfo.new(0.1), {Size = UDim2.new(0.96, 0, 0, 40), Position = UDim2.new(0.02, 0, 0, 1)}):Play() end)
+        btn.MouseButton1Up:Connect(function() TweenService:Create(frame, TweenInfo.new(0.1), {Size = UDim2.new(1, 0, 0, 42), Position = UDim2.new(0, 0, 0, 0)}):Play() end)
+        btn.MouseButton1Click:Connect(callback)
+    end
+
+    local function createToggle(page, text, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 42)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+        frame.Parent = page
+        Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+        
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(0.7, 0, 1, 0)
+        lbl.Position = UDim2.new(0, 15, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
+        lbl.Font = Enum.Font.GothamSemibold
+        lbl.TextSize = 13
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = frame
+        
+        local toggleBg = Instance.new("Frame")
+        toggleBg.Size = UDim2.new(0, 40, 0, 20)
+        toggleBg.Position = UDim2.new(1, -55, 0.5, -10)
+        toggleBg.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        toggleBg.Parent = frame
+        Instance.new("UICorner", toggleBg).CornerRadius = UDim.new(1, 0)
+        
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = UDim2.new(0, 2, 0.5, -8)
+        knob.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        knob.Parent = toggleBg
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = ""
+        btn.Parent = frame
+        
+        local toggled = false
+        btn.MouseButton1Click:Connect(function()
+            toggled = not toggled
+            if toggled then
+                TweenService:Create(toggleBg, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(90, 200, 120)}):Play()
+                TweenService:Create(knob, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(1, -18, 0.5, -8), BackgroundColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            else
+                TweenService:Create(toggleBg, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(50, 50, 60)}):Play()
+                TweenService:Create(knob, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, 2, 0.5, -8), BackgroundColor3 = Color3.fromRGB(200, 200, 200)}):Play()
+            end
+            callback(toggled)
+        end)
+    end
+
+    -- Create Layout
+    local pageExec = createPage("Execution")
+    local pageAuto = createPage("Routing")
+    local pagePerf = createPage("Safety")
+
+    createTabButton("Execution", 80, pageExec)
+    createTabButton("Automation", 125, pageAuto)
+    createTabButton("Performance", 170, pagePerf)
+    
+    -- Execution Page Config
+    createButtonCard(pageExec, "⏺ Start Network Recording", Color3.fromRGB(255, 90, 90), function()
+        if self.MacroSystem:GetState() == "Idle" then self.MacroSystem:StartRecording() end
+    end)
+    createButtonCard(pageExec, "▶ Execute Memory Macro", Color3.fromRGB(90, 255, 120), function()
+        if self.MacroSystem:GetState() == "Idle" then self.MacroSystem:Play("DemoMacro") end
+    end)
+    createButtonCard(pageExec, "⏹ Force Abort Engine", Color3.fromRGB(200, 200, 200), function()
+        self.MacroSystem:Stop()
+    end)
+    createButtonCard(pageExec, "💾 Save to FileStore", Color3.fromRGB(100, 180, 255), function()
+        local mapId = self.MacroSystem.MapAdapter and self.MacroSystem.MapAdapter.MapId or "FallbackMode"
+        self.MacroSystem:SaveRecording("DemoMacro", mapId)
+    end)
+
+    -- Routing Config
+    createToggle(pageAuto, "Enable Auto-Join Loop", function(state)
+        if state then self.MacroSystem:EnableAutoJoin("Map_Grassland", "Extreme") else self.MacroSystem:DisableAutoJoin() end
+    end)
+    
+    -- Safety Config
+    createToggle(pagePerf, "Ghost Input (Anti-AFK)", function(state)
+        self.MacroSystem:ToggleAntiAFK(state)
+    end)
+    createToggle(pagePerf, "Disable 3D (CPU Saver)", function(state)
+        self.MacroSystem:ToggleCPUSaver(state)
+    end)
+
+    -- Show Tab 1 by default
+    tabButtons[1].btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tabButtons[1].indicator.Size = UDim2.new(0, 3, 0.5, 0)
+    pageExec.Visible = true
+
+    -- Hook Engine Messages to GUI
+    self.MacroSystem.FSM:Subscribe(function(newState)
+        if self.GuiElements.StatusLabel then
+            self.GuiElements.StatusLabel.Text = "System: " .. newState
+            if newState == "Recording" then self.GuiElements.StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            elseif newState == "Playing" then self.GuiElements.StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            else self.GuiElements.StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 180) end
+        end
+    end)
+end
+
+function UIController:Destroy()
+    if self.GuiElements.ScreenGui then self.GuiElements.ScreenGui:Destroy() end
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- MODULE: MacroSystem.lua
+--------------------------------------------
+-- MacroSystem/MacroSystem.lua
+-- Main API Gateway for the Automation Engine
+
+-- [Removed Require]
+-- [Removed Require]
+-- [Removed Require]
+
+-- [Removed Require]
+-- [Removed Require]
+
+-- [Removed Require]
+-- [Removed Require]
+
+-- [Removed Require]
+-- [Removed Require]
+
+-- [Removed Require]
+-- [Removed Require]
+
+local MacroSystem = {}
+MacroSystem.__index = MacroSystem
+
+function MacroSystem.new(mapAdapter)
+    local self = setmetatable({}, MacroSystem)
+    
+    -- Initialize dependencies
+    self.MapAdapter = mapAdapter
+    self.FSM = StateMachine.new()
+    self.Queue = ActionQueue.new()
+    self.Detector = AGDetector.new()
+    self.Evaluator = ConditionEvaluator.new(self.Detector)
+    
+    self.Handlers = AGHandlers.new()
+    self.Handlers:RegisterDefaults()
+    
+    self.Executor = Executor.new(self.Queue, self.Evaluator, self.Handlers, self.MapAdapter)
+    self.Scheduler = Scheduler.new(self.Executor, self.FSM)
+    self.Recorder = Recorder.new(self.FSM, self.MapAdapter, self.Detector)
+    self.UI = UIController.new(self)
+    
+    self.AutoJoinConfig = nil
+    
+    -- AutoReplay Hook
+    self.FSM:Subscribe(function(newState, oldState)
+        if newState == "Idle" and oldState == "Playing" and self.AutoJoinConfig then
+            Logger.info("AutoReplay Triggered: Attempting return to Lobby...")
+            -- game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("ReturnToLobby"):InvokeServer()
+            self.FSM:TransitionTo("AutoLobby")
+            self:_startAutoLobbyLoop()
+        end
+    end)
+    
+    Logger.info("Spatially Abstracted Deterministic Automation Engine Initialized")
+    -- [Removed Return]
+end
+
+function MacroSystem:EnableAutoJoin(mapTarget: string, difficulty: string)
+    self.AutoJoinConfig = { map = mapTarget, difficulty = difficulty }
+    if self.FSM:GetState() == "Idle" or self.FSM:GetState() == "AutoLobby" then
+        self.FSM:TransitionTo("AutoLobby")
+        self:_startAutoLobbyLoop()
+    end
+end
+
+function MacroSystem:DisableAutoJoin()
+    self.AutoJoinConfig = nil
+    if self.FSM:GetState() == "AutoLobby" then self.FSM:TransitionTo("Idle") end
+end
+
+function MacroSystem:_startAutoLobbyLoop()
+    task.spawn(function()
+        while self.FSM:GetState() == "AutoLobby" do
+            task.wait(2)
+            local state = self.Detector:GetState()
+            
+            if state == "Lobby" then
+                Logger.info("AutoLobby: Attempting to join map " .. tostring(self.AutoJoinConfig.map))
+                -- game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("JoinMap"):InvokeServer(self.AutoJoinConfig.map, self.AutoJoinConfig.difficulty)
+            elseif state == "InGame" then
+                Logger.info("AutoLobby: Successfully entered game. Auto-starting macro playback...")
+                self:Play("DemoMacro") 
+                break
+            end
+        end
+    end)
+end
+
+function MacroSystem:StartUI()
+    self.UI:Initialize()
+end
+
+function MacroSystem:ToggleAntiAFK(state: boolean)
+    -- [Removed Duplicate Service]
+    -- [Removed Duplicate Service]
+    
+    if state then
+        self.AntiAfkConn = Players.LocalPlayer.Idled:Connect(function()
+            -- Captures the input controller to send a virtually undetectable ghost click, preventing the 20min timeout.
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+            Logger.info("Anti-AFK By-pass triggered ghost input.")
+        end)
+    else
+        if self.AntiAfkConn then
+            self.AntiAfkConn:Disconnect()
+            self.AntiAfkConn = nil
+        end
+    end
+end
+
+function MacroSystem:ToggleCPUSaver(state: boolean)
+    local success, err = pcall(function()
+        game:GetService("RunService"):Set3dRenderingEnabled(not state)
+    end)
+    if not success then
+        Logger.warn("Set3dRenderingEnabled unsupported on this device. CPU Saver failed.")
+    end
+end
+
+function MacroSystem:StartRecording()
+    if self.FSM:TransitionTo("Recording") then
+        self.Recorder:StartRecording()
+    end
+end
+
+function MacroSystem:Stop()
+    local oldState = self.FSM:GetState()
+    if self.FSM:TransitionTo("Idle") then
+        self.Scheduler:Stop()
+        self.Recorder:StopRecording()
+        self.Queue:Clear()
+    end
+    -- [Removed Return]
+end
+
+function MacroSystem:SaveRecording(name: string, mapId: string)
+    local actions = self.Recorder:GetRecording()
+    if #actions == 0 then
+        Logger.warn("No actions to save.")
+        -- [Removed Return]
+    end
+    
+    local requiredAnchors = {}
+    -- Collect required anchors from placements
+    for _, action in ipairs(actions) do
+        if action.type == "place_unit" and action.payload.anchor then
+            requiredAnchors[action.payload.anchor] = true
+        end
+    end
+    
+    local anchorList = {}
+    for anchor, _ in pairs(requiredAnchors) do table.insert(anchorList, anchor) end
+    
+    return FileStore.SaveMacro(name, mapId, actions, anchorList)
+end
+
+function MacroSystem:Play(name: string)
+    local macroData = FileStore.LoadMacro(name, self.MapAdapter)
+    if not macroData then return false end
+    
+    if self.FSM:TransitionTo("Playing") then
+        self.Queue:Clear()
+        for _, action in ipairs(macroData.actions) do
+            self.Queue:Enqueue(action)
+        end
+        self.Scheduler:Start()
+        Logger.info("Playing macro: " .. name .. " with " .. tostring(self.Queue:Count()) .. " actions.")
+        -- [Removed Return]
+    end
+    -- [Removed Return]
+end
+
+function MacroSystem:GetState()
+    return self.FSM:GetState()
+end
+
+-- Pass-through to simulate hooks for external usage
+function MacroSystem:RecordAction(action)
+    self.Recorder:RecordAction(action)
+end
+
+-- [Removed Return]
+
+--------------------------------------------
+-- BOOTSTRAPPER INJECTION
+--------------------------------------------
+
+-- Define the fallback adapter (If players don't need anchors, they can skip this and let SpatialResolver fallback to RAW Vectors)
+local mapAnchors = {
+    Spawn = Vector3.new(0, 5, 0),
+    Turn1 = Vector3.new(100, 5, 50),
+    Base = Vector3.new(200, 5, 200)
+}
+local mapBounds = { Vector3.new(0, 0, 0), Vector3.new(300, 50, 300) }
+local testAdapter = MapAdapter.new("Map_Grassland", mapBounds, mapAnchors)
+
+-- Boot Engine
+local testEngine = MacroSystem.new(testAdapter)
+testEngine:StartUI()
+
+print("Guardian Premium Hub Compiled Release Injected Successfully. Safe Hook Active.")
